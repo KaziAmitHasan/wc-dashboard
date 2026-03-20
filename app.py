@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import html
 import requests
 import numpy as np
 import pandas as pd
@@ -19,13 +20,42 @@ import matplotlib.pyplot as plt
 # ----------------------------
 st.set_page_config(page_title="Dashboard", layout="wide")
 
-# Updated to use your new dataset file name
 DATA_PATH = "data/location_all_df.csv"
 GEOCACHE_PATH = "geocode_cache.json"
 
 CARTO_POSITRON = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
 WORLD_GEOJSON_URL = "https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson"
 
+HOST_CITIES_2026 = {
+    "toronto",
+    "vancouver",
+    "mexico city",
+    "guadalajara",
+    "monterrey",
+    "atlanta",
+    "boston",
+    "dallas",
+    "houston",
+    "kansas city",
+    "los angeles",
+    "miami",
+    "new york",
+    "new york city",
+    "new jersey",
+    "philadelphia",
+    "san francisco",
+    "seattle",
+}
+
+HOST_CITY_ALIASES = {
+    "arlington": "dallas",
+    "inglewood": "los angeles",
+    "foxborough": "boston",
+    "miami gardens": "miami",
+    "kansas city, missouri": "kansas city",
+    "east rutherford": "new jersey",
+    "bay area": "san francisco",
+}
 
 # ----------------------------
 # Basic helpers
@@ -43,13 +73,12 @@ def pick_datetime_source(df: pd.DataFrame):
 def load_data_no_cache(data_path: str) -> pd.DataFrame:
     df = pd.read_csv(data_path)
     dt_col = pick_datetime_source(df)
-    
+
     if dt_col is None:
         df["published_dt"] = pd.NaT
     else:
         df["published_dt"] = safe_to_datetime(df[dt_col])
 
-    # Updated extracted_cities -> city, extracted_countries -> country
     for c in ["topic", "content", "title", "snippet", "city", "country", "real_link", "link"]:
         if c in df.columns:
             df[c] = df[c].astype("string")
@@ -93,6 +122,14 @@ def normalize_country(name: str) -> str:
     }
     return mapping.get(lower, n)
 
+def normalize_city_name(name: str) -> str:
+    s = "" if name is None else str(name).strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    return HOST_CITY_ALIASES.get(s, s)
+
+def is_host_city_2026(name: str) -> bool:
+    return normalize_city_name(name) in HOST_CITIES_2026
+
 def load_geocache(path: str) -> dict:
     if os.path.exists(path):
         try:
@@ -121,77 +158,69 @@ def clean_text_for_wordcloud(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
+def same_city(candidate: str, selected: str) -> bool:
+    return normalize_city_name(candidate) == normalize_city_name(selected)
 
 # ----------------------------
-# Place stats for rich tooltip
+# Place stats for tooltip
 # ----------------------------
 def build_place_stats(df_articles: pd.DataFrame, max_examples: int = 3) -> dict:
     stats = {}
 
-    def add(place_type, place, topic, title, preview):
+    def add(place_type, place, topic):
         key = f"{place_type}:{place}"
         if key not in stats:
-            stats[key] = {"count": 0, "topic_counts": {}, "examples": []}
+            stats[key] = {
+                "count": 0,
+                "topic_counts": {},
+            }
 
         stats[key]["count"] += 1
         if topic:
             stats[key]["topic_counts"][topic] = stats[key]["topic_counts"].get(topic, 0) + 1
 
-        if len(stats[key]["examples"]) < max_examples and (title or preview):
-            stats[key]["examples"].append((title, preview))
-
     for _, r in df_articles.iterrows():
-        topic = str(r.get("topic", "") or "")
-        title = truncate(r.get("title", ""), 90)
-        snippet = truncate(r.get("snippet", ""), 160)
-        content = truncate(r.get("content", ""), 200)
-        preview = snippet if snippet else content
+        topic = str(r.get("topic", "") or "").strip()
 
-        # Updated to new columns
         cities = split_places(r.get("city", None))
         countries = [normalize_country(x) for x in split_places(r.get("country", None))]
 
         for c in cities:
-            add("city", c, topic, title, preview)
+            add("city", c, topic)
         for c in countries:
-            add("country", c, topic, title, preview)
+            add("country", c, topic)
 
     final = {}
     for key, d in stats.items():
-        top_sorted = sorted(d["topic_counts"].items(), key=lambda x: x[1], reverse=True)
-        t1 = top_sorted[0] if len(top_sorted) >= 1 else ("—", 0)
-        t2 = top_sorted[1] if len(top_sorted) >= 2 else ("—", 0)
+        topic_sorted = sorted(d["topic_counts"].items(), key=lambda x: x[1], reverse=True)
 
-        lines = []
-        for i, (t, p) in enumerate(d["examples"], start=1):
-            t = t or "Untitled"
-            p = p or ""
-            lines.append(f"<div style='margin-top:6px'><b>{i}. {t}</b><br/>{p}</div>")
+        most_talked_topics = ", ".join(
+            [f"{topic} ({count})" for topic, count in topic_sorted]
+        ) if topic_sorted else "—"
 
         final[key] = {
             "count": int(d["count"]),
-            "top_topic": t1[0],
-            "top_topic_count": int(t1[1]),
-            "top_topic2": t2[0],
-            "top_topic2_count": int(t2[1]),
-            "examples_html": "".join(lines) if lines else "<div style='color:#666'>No examples</div>",
+            "most_talked_topics": most_talked_topics,
         }
+
     return final
-
-
 # ----------------------------
 # Geocoding for cities
 # ----------------------------
 def explode_city_counts(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for _, r in df.iterrows():
-        # Updated to new column 'city'
         for c in split_places(r.get("city", None)):
             rows.append({"place": c})
     out = pd.DataFrame(rows)
     if out.empty:
         return out
-    out = out.groupby("place", as_index=False).size().rename(columns={"size": "count"}).sort_values("count", ascending=False)
+    out = (
+        out.groupby("place", as_index=False)
+        .size()
+        .rename(columns={"size": "count"})
+        .sort_values("count", ascending=False)
+    )
     return out
 
 def geocode_places(city_df: pd.DataFrame, cache: dict, max_places: int = 150) -> pd.DataFrame:
@@ -216,10 +245,12 @@ def geocode_places(city_df: pd.DataFrame, cache: dict, max_places: int = 150) ->
                     loc = geocode(row.place)
                 except Exception:
                     loc = None
+
                 if loc is None:
                     lat, lon = (None, None)
                 else:
                     lat, lon = (loc.latitude, loc.longitude)
+
                 cache[key] = [lat, lon]
 
             lats.append(lat)
@@ -230,7 +261,6 @@ def geocode_places(city_df: pd.DataFrame, cache: dict, max_places: int = 150) ->
     target["lon"] = pd.to_numeric(lons, errors="coerce")
     target = target.dropna(subset=["lat", "lon"]).copy()
     return target
-
 
 # ----------------------------
 # Country GeoJSON choropleth
@@ -262,7 +292,6 @@ def build_country_geojson(df_f: pd.DataFrame, place_stats: dict) -> dict:
 
     mentions = []
     for _, r in df_f.iterrows():
-        # Updated to new column 'country'
         for c in [normalize_country(x) for x in split_places(r.get("country", None))]:
             mentions.append(c)
 
@@ -277,73 +306,72 @@ def build_country_geojson(df_f: pd.DataFrame, place_stats: dict) -> dict:
         s = place_stats.get(key, None)
 
         cnt = int(counts.get(name, 0))
-        top_topic = s["top_topic"] if s else "—"
-        top_topic_count = int(s["top_topic_count"]) if s else 0
-        top_topic2 = s["top_topic2"] if s else "—"
-        top_topic2_count = int(s["top_topic2_count"]) if s else 0
-        examples_html = s["examples_html"] if s else "<div style='color:#666'>No examples</div>"
+        most_talked_topics = s["most_talked_topics"] if s else "—"
 
         feat.setdefault("properties", {})
         feat["properties"]["fill_color"] = color_scale(cnt, max_count)
-
         feat["properties"]["kind"] = "Country"
         feat["properties"]["label"] = name
         feat["properties"]["count"] = cnt
-        feat["properties"]["top_topic"] = top_topic
-        feat["properties"]["top_topic_count"] = top_topic_count
-        feat["properties"]["top_topic2"] = top_topic2
-        feat["properties"]["top_topic2_count"] = top_topic2_count
-        feat["properties"]["examples_html"] = examples_html
-
-        # flatten for tooltip
-        feat["kind"] = "Country"
-        feat["label"] = name
-        feat["count"] = cnt
-        feat["top_topic"] = top_topic
-        feat["top_topic_count"] = top_topic_count
-        feat["top_topic2"] = top_topic2
-        feat["top_topic2_count"] = top_topic2_count
-        feat["examples_html"] = examples_html
+        feat["properties"]["host_label"] = ""
+        feat["properties"]["most_talked_topics"] = most_talked_topics
 
     return world
 
-
 # ----------------------------
-# City GeoJSON points (flattened for tooltips)
+# Article detail helpers
 # ----------------------------
-def build_city_points_geojson(geo_df: pd.DataFrame) -> dict:
-    feats = []
-    for _, r in geo_df.iterrows():
-        place = str(r["place"])
-        feat = {
-            "type": "Feature",
-            "geometry": {"type": "Point", "coordinates": [float(r["lon"]), float(r["lat"])]},
-            "properties": {
-                "kind": "City",
-                "label": place,
-                "count": int(r["count"]),
-                "top_topic": str(r.get("top_topic", "—")),
-                "top_topic_count": int(r.get("top_topic_count", 0)),
-                "top_topic2": str(r.get("top_topic2", "—")),
-                "top_topic2_count": int(r.get("top_topic2_count", 0)),
-                "examples_html": str(r.get("examples_html", "<div style='color:#666'>No examples</div>")),
-                "radius": float(r.get("radius", 4000.0)),
-            }
-        }
+def filter_articles_for_city(df_articles: pd.DataFrame, city_name: str) -> pd.DataFrame:
+    if not city_name:
+        return df_articles.iloc[0:0].copy()
 
-        feat["kind"] = "City"
-        feat["label"] = place
-        feat["count"] = int(r["count"])
-        feat["top_topic"] = str(r.get("top_topic", "—"))
-        feat["top_topic_count"] = int(r.get("top_topic_count", 0))
-        feat["top_topic2"] = str(r.get("top_topic2", "—"))
-        feat["top_topic2_count"] = int(r.get("top_topic2_count", 0))
-        feat["examples_html"] = str(r.get("examples_html", "<div style='color:#666'>No examples</div>"))
+    mask = df_articles["city"].fillna("").apply(
+        lambda cell: any(same_city(c, city_name) for c in split_places(cell))
+    )
+    out = df_articles[mask].copy()
 
-        feats.append(feat)
+    if "published_dt" in out.columns:
+        out = out.sort_values("published_dt", ascending=False, na_position="last")
+    return out
 
-    return {"type": "FeatureCollection", "features": feats}
+import re
+import html
+import pandas as pd
+import streamlit as st
 
+import re
+import html
+import pandas as pd
+import streamlit as st
+
+def strip_html_tags(text):
+    if pd.isna(text):
+        return ""
+    text = str(text)
+    text = html.unescape(text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+def render_city_article_panel(df_articles: pd.DataFrame, city_name: str):
+    st.subheader(f"Articles for {city_name}")
+
+    if df_articles.empty:
+        st.info("No articles found for this city in the current filters.")
+        return
+
+    host_text = "Official 2026 World Cup host city" if is_host_city_2026(city_name) else "Non-host city"
+    st.caption(host_text)
+
+    with st.container(border=True):
+        for i, (_, row) in enumerate(df_articles.iterrows(), start=1):
+            title = strip_html_tags(row.get("title", "Untitled"))
+            url = row.get("real_link", None)
+
+            if pd.notna(url) and str(url).strip():
+                st.markdown(f"{i}. {title} [open link]({url})")
+            else:
+                st.markdown(f"{i}. {title}")
 
 # ----------------------------
 # UI Top
@@ -356,7 +384,6 @@ with colB:
         st.cache_data.clear()
         st.rerun()
 
-
 # ----------------------------
 # Load data
 # ----------------------------
@@ -365,7 +392,6 @@ if not os.path.exists(DATA_PATH):
     st.stop()
 
 df = load_data_no_cache(DATA_PATH)
-
 
 # ----------------------------
 # Sidebar
@@ -396,7 +422,6 @@ months_back = st.sidebar.slider("Topic popularity window (last N months)", 1, 36
 top_k_topics = st.sidebar.slider("Top topics to show", 5, 30, 12, step=1)
 max_rows_wordcloud = st.sidebar.slider("Max rows for wordcloud (speed)", 50, 5000, 2000, step=50)
 
-
 # ----------------------------
 # Filter
 # ----------------------------
@@ -411,57 +436,44 @@ if date_range is not None:
         (df_f["published_dt"].dt.date <= end_d)
     ]
 
-place_stats = build_place_stats(df_f, max_examples=3)
-
+place_stats = build_place_stats(df_f, max_examples=5)
 
 # ----------------------------
 # MAP
 # ----------------------------
 st.divider()
-st.subheader("Map (hover to see details)")
+st.subheader("Map")
 
 tooltip_html = """
-<div style="font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial; width: 380px;">
-  <div style="font-size: 22px; font-weight: 800; margin-bottom: 6px;">
-    {kind}: {label}
+<div style="
+  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  width: 320px;
+  line-height: 1.5;
+">
+  <div style="font-size: 20px; font-weight: 800; margin-bottom: 8px;">
+    {label}
   </div>
 
-  <div style="color:#666; font-size: 13px; margin-bottom: 8px;">
-    Hover card • Mentions & top topics
+  <div style="font-size: 14px; color: #444; margin-bottom: 4px;">
+    {kind}
   </div>
 
-  <div style="display:flex; gap:14px; align-items:center; margin-bottom: 10px;">
-    <div style="
-      width:78px; height:78px; border-radius: 50%;
-      background:#2E6BB3; color:white;
-      display:flex; align-items:center; justify-content:center;
-      font-size: 30px; font-weight: 900;">
-      {count}
-    </div>
-
-    <div style="flex:1;">
-      <div style="font-size: 14px; font-weight: 800;">Top topic</div>
-      <div style="font-size: 14px; color:#222;">
-        {top_topic} <span style="color:#666;">({top_topic_count})</span>
-      </div>
-
-      <div style="margin-top:6px; font-size: 14px; font-weight: 800;">Second</div>
-      <div style="font-size: 14px; color:#222;">
-        {top_topic2} <span style="color:#666;">({top_topic2_count})</span>
-      </div>
-    </div>
+  <div style="font-size: 14px; color: #9b1c1c; font-weight: 700; margin-bottom: 8px;">
+    {host_label}
   </div>
 
-  <div style="margin-top:8px;">
-    <div style="font-size: 14px; font-weight: 800; margin-bottom: 4px;">Examples</div>
-    <div style="font-size: 12.5px; color:#222; line-height: 1.35;">
-      {examples_html}
-    </div>
+  <div style="font-size: 14px; margin-bottom: 6px;">
+    <b>Total articles talking about it:</b> {count}
+  </div>
+
+  <div style="font-size: 14px; color: #222;">
+    <b>Most talked topics:</b> {most_talked_topics}
   </div>
 </div>
 """
 
 layers = []
+geo_df = pd.DataFrame()
 
 if map_mode in ["Country (filled)", "Both"]:
     world_geo = build_country_geojson(df_f, place_stats)
@@ -490,28 +502,45 @@ if map_mode in ["City bubbles", "Both"]:
             def stat(place: str, field: str):
                 s = place_stats.get(f"city:{place}")
                 if not s:
-                    return "—" if field not in ["top_topic_count", "top_topic2_count"] else 0
+                    return "—" if field == "most_talked_topics" else 0
                 return s[field]
 
-            geo_df["top_topic"] = geo_df["place"].apply(lambda x: stat(x, "top_topic"))
-            geo_df["top_topic_count"] = geo_df["place"].apply(lambda x: stat(x, "top_topic_count"))
-            geo_df["top_topic2"] = geo_df["place"].apply(lambda x: stat(x, "top_topic2"))
-            geo_df["top_topic2_count"] = geo_df["place"].apply(lambda x: stat(x, "top_topic2_count"))
-            geo_df["examples_html"] = geo_df["place"].apply(lambda x: stat(x, "examples_html"))
-            geo_df["radius"] = np.clip(np.sqrt(geo_df["count"].astype(float)) * 2500, 3000, 35000)
+            geo_df["most_talked_topics"] = geo_df["place"].apply(lambda x: stat(x, "most_talked_topics"))
+            geo_df["is_host_city"] = geo_df["place"].apply(is_host_city_2026)
+            geo_df["host_label"] = geo_df["is_host_city"].apply(
+                lambda x: "Official 2026 World Cup host city" if x else "Non-host city"
+            )
+            geo_df["kind"] = "City"
+            geo_df["label"] = geo_df["place"]
+            geo_df["most_talked_topics"] = geo_df["place"].apply(lambda x: stat(x, "most_talked_topics"))
+            geo_df["radius"] = np.where(
+                geo_df["is_host_city"],
+                np.clip(np.sqrt(geo_df["count"].astype(float)) * 5000, 12000, 50000),
+                np.clip(np.sqrt(geo_df["count"].astype(float)) * 3500, 8000, 35000),
+            )
 
-            city_geojson = build_city_points_geojson(geo_df)
+            geo_df["fill_color"] = geo_df["is_host_city"].apply(
+                lambda x: [220, 50, 50, 210] if x else [30, 110, 190, 170]
+            )
+            geo_df["line_color"] = geo_df["is_host_city"].apply(
+                lambda x: [120, 0, 0, 255] if x else [10, 50, 120, 220]
+            )
 
             layers.append(
                 pdk.Layer(
-                    "GeoJsonLayer",
-                    data=city_geojson,
-                    stroked=False,
+                    "ScatterplotLayer",
+                    data=geo_df,
+                    get_position="[lon, lat]",
+                    get_radius="radius",
+                    get_fill_color="fill_color",
+                    get_line_color="line_color",
+                    stroked=True,
                     filled=True,
+                    line_width_min_pixels=1.5,
                     pickable=True,
-                    get_fill_color=[30, 110, 190, 160],
-                    get_point_radius="properties.radius",
-                    point_radius_min_pixels=3,
+                    opacity=0.9,
+                    radius_min_pixels=10,
+                    radius_max_pixels=60,
                 )
             )
 
@@ -526,18 +555,36 @@ deck = pdk.Deck(
         "style": {
             "backgroundColor": "white",
             "color": "black",
-            "maxWidth": "420px",
+            "maxWidth": "340px",
             "padding": "12px",
             "border": "1px solid rgba(0,0,0,0.12)",
             "borderRadius": "10px",
             "boxShadow": "0 8px 24px rgba(0,0,0,0.15)",
         },
     },
-    height=720,
 )
 
-st.pydeck_chart(deck, use_container_width=True)
+st.pydeck_chart(deck)
 
+selected_city = None
+if not geo_df.empty:
+    st.caption("Choose a city below to show all articles for that city.")
+    city_options = ["None"] + sorted(geo_df["place"].dropna().astype(str).unique().tolist())
+    selected_city = st.selectbox("Selected city", city_options, index=0)
+    if selected_city == "None":
+        selected_city = None
+
+# ----------------------------
+# CITY DETAIL PANEL
+# ----------------------------
+st.divider()
+
+if selected_city:
+    city_articles = filter_articles_for_city(df_f, selected_city)
+    render_city_article_panel(city_articles, selected_city)
+else:
+    st.subheader("City details")
+    st.info("Choose a city to show all articles for that city here.")
 
 # ----------------------------
 # BELOW MAP: Topic popularity + WordCloud
@@ -546,7 +593,6 @@ st.divider()
 
 col_pop, col_wc = st.columns([1, 1], gap="large")
 
-# We'll compute df_pop + ts data ONCE so both plots can use them
 df_pop = df.copy()
 if date_range is not None:
     start_d, end_d = date_range
@@ -573,7 +619,6 @@ with col_pop:
             (df_pop["published_dt"] <= (window_end + pd.Timedelta(days=1)))
         ].copy()
 
-        # ---- Bar chart (top topics) ----
         topic_counts = (
             df_pop["topic"].dropna().value_counts().head(top_k_topics)
             .rename_axis("topic").reset_index(name="count")
@@ -586,7 +631,6 @@ with col_pop:
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
-        # ---- Prepare time series data (we will plot it full-width later) ----
         df_ts = df_pop[["published_dt", "topic"]].dropna().copy()
         df_ts["month"] = df_ts["published_dt"].dt.to_period("M").dt.to_timestamp()
 
@@ -611,7 +655,8 @@ with col_wc:
         st.info("Not enough content for a wordcloud.")
     else:
         wc = WordCloud(
-            width=900, height=450,
+            width=900,
+            height=450,
             background_color="white",
             stopwords=set(STOPWORDS),
             collocations=False,
@@ -621,7 +666,6 @@ with col_wc:
         plt.axis("off")
         st.pyplot(fig2)
 
-# FULL-WIDTH popularity over time (outside columns)
 st.subheader("Popularity over time")
 
 if "ts_counts" not in locals() or ts_counts.empty:
@@ -639,6 +683,5 @@ else:
 
 st.divider()
 st.subheader("Articles in current view")
-# Updated mapping to `country` and `city` rather than extracted_*
 show_cols = [c for c in ["published", "topic", "title", "real_link", "link", "country", "city"] if c in df_f.columns]
 st.dataframe(df_f[show_cols], use_container_width=True, hide_index=True)
