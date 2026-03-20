@@ -46,6 +46,11 @@ HOST_CITIES_2026 = {
     "san francisco",
     "seattle",
 }
+HOST_COUNTRIES_2026 = {
+    "United States",
+    "Canada",
+    "Mexico",
+}
 
 HOST_CITY_ALIASES = {
     "arlington": "dallas",
@@ -69,6 +74,9 @@ def pick_datetime_source(df: pd.DataFrame):
     if "fetched_at" in df.columns:
         return "fetched_at"
     return None
+
+def is_host_country_2026(name: str) -> bool:
+    return normalize_country(name) in HOST_COUNTRIES_2026
 
 def load_data_no_cache(data_path: str) -> pd.DataFrame:
     df = pd.read_csv(data_path)
@@ -307,19 +315,23 @@ def build_country_geojson(df_f: pd.DataFrame, place_stats: dict) -> dict:
 
         cnt = int(counts.get(name, 0))
         most_talked_topics = s["most_talked_topics"] if s else "—"
+        host_label = "Official 2026 World Cup host country" if is_host_country_2026(name) else "Non-host country"
 
         feat.setdefault("properties", {})
         feat["properties"]["fill_color"] = color_scale(cnt, max_count)
         feat["properties"]["kind"] = "Country"
         feat["properties"]["label"] = name
         feat["properties"]["count"] = cnt
-        feat["properties"]["host_label"] = ""
+        feat["properties"]["host_label"] = host_label
         feat["properties"]["most_talked_topics"] = most_talked_topics
+
+        # flatten for tooltip reliability
         feat["label"] = name
         feat["kind"] = "Country"
         feat["count"] = cnt
-        feat["host_label"] = ""
+        feat["host_label"] = host_label
         feat["most_talked_topics"] = most_talked_topics
+
     return world
 
 
