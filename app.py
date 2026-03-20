@@ -315,9 +315,26 @@ def build_country_geojson(df_f: pd.DataFrame, place_stats: dict) -> dict:
         feat["properties"]["count"] = cnt
         feat["properties"]["host_label"] = ""
         feat["properties"]["most_talked_topics"] = most_talked_topics
-
+        feat["label"] = name
+        feat["kind"] = "Country"
+        feat["count"] = cnt
+        feat["host_label"] = ""
+        feat["most_talked_topics"] = most_talked_topics
     return world
 
+
+def filter_articles_for_country(df_articles: pd.DataFrame, country_name: str) -> pd.DataFrame:
+    if not country_name:
+        return df_articles.iloc[0:0].copy()
+
+    mask = df_articles["country"].fillna("").apply(
+        lambda cell: any(normalize_country(c) == normalize_country(country_name) for c in split_places(cell))
+    )
+    out = df_articles[mask].copy()
+
+    if "published_dt" in out.columns:
+        out = out.sort_values("published_dt", ascending=False, na_position="last")
+    return out
 # ----------------------------
 # Article detail helpers
 # ----------------------------
@@ -373,6 +390,23 @@ def render_city_article_panel(df_articles: pd.DataFrame, city_name: str):
             else:
                 st.markdown(f"{i}. {title}")
 
+
+def render_country_article_panel(df_articles: pd.DataFrame, country_name: str):
+    st.subheader(f"Articles for {country_name}")
+
+    if df_articles.empty:
+        st.info("No articles found for this country in the current filters.")
+        return
+
+    with st.container(border=True):
+        for i, (_, row) in enumerate(df_articles.iterrows(), start=1):
+            title = strip_html_tags(row.get("title", "Untitled"))
+            url = row.get("real_link", None)
+
+            if pd.notna(url) and str(url).strip():
+                st.markdown(f"{i}. {title} [open link]({url})")
+            else:
+                st.markdown(f"{i}. {title}")
 # ----------------------------
 # UI Top
 # ----------------------------
@@ -415,7 +449,7 @@ else:
         value=(min_dt.date(), max_dt.date()),
     )
 
-map_mode = st.sidebar.selectbox("Map mode", ["Country (filled)", "City bubbles", "Both"], index=0)
+map_mode = st.sidebar.selectbox("Map mode", ["Country (filled)", "City bubbles", "Both"], index=2)
 
 topN_city = st.sidebar.slider("Max cities to geocode/map (top by frequency)", 25, 300, 150, step=25)
 months_back = st.sidebar.slider("Topic popularity window (last N months)", 1, 36, 6, step=1)
@@ -567,25 +601,51 @@ deck = pdk.Deck(
 st.pydeck_chart(deck)
 
 selected_city = None
-if not geo_df.empty:
-    st.caption("Choose a city below to show all articles for that city.")
-    city_options = ["None"] + sorted(geo_df["place"].dropna().astype(str).unique().tolist())
-    selected_city = st.selectbox("Selected city", city_options, index=0)
-    if selected_city == "None":
-        selected_city = None
+selected_country = None
+
+if map_mode == "Country (filled)":
+    country_options = sorted(
+        {
+            normalize_country(c)
+            for cell in df_f["country"].fillna("")
+            for c in split_places(cell)
+            if str(c).strip()
+        }
+    )
+
+    if country_options:
+        st.caption("Choose a country below to show all articles for that country.")
+        selected_country = st.selectbox("Selected country", ["None"] + country_options, index=0)
+        if selected_country == "None":
+            selected_country = None
+
+else:
+    if not geo_df.empty:
+        st.caption("Choose a city below to show all articles for that city.")
+        city_options = ["None"] + sorted(geo_df["place"].dropna().astype(str).unique().tolist())
+        selected_city = st.selectbox("Selected city", city_options, index=0)
+        if selected_city == "None":
+            selected_city = None
 
 # ----------------------------
 # CITY DETAIL PANEL
 # ----------------------------
 st.divider()
 
-if selected_city:
-    city_articles = filter_articles_for_city(df_f, selected_city)
-    render_city_article_panel(city_articles, selected_city)
+if map_mode == "Country (filled)":
+    if selected_country:
+        country_articles = filter_articles_for_country(df_f, selected_country)
+        render_country_article_panel(country_articles, selected_country)
+    else:
+        st.subheader("Country details")
+        st.info("Choose a country to show all articles for that country here.")
 else:
-    st.subheader("City details")
-    st.info("Choose a city to show all articles for that city here.")
-
+    if selected_city:
+        city_articles = filter_articles_for_city(df_f, selected_city)
+        render_city_article_panel(city_articles, selected_city)
+    else:
+        st.subheader("City details")
+        st.info("Choose a city to show all articles for that city here.")
 # ----------------------------
 # BELOW MAP: Topic popularity + WordCloud
 # ----------------------------
