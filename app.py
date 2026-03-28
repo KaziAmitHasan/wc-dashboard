@@ -17,7 +17,7 @@ from wordcloud import WordCloud, STOPWORDS
 # ----------------------------
 # Config
 # ----------------------------
-st.set_page_config(page_title="World Cup Observatory", layout="wide")
+st.set_page_config(page_title="WorldCup 2026 Observatory", layout="wide")
 
 DATA_PATH = "data/location_all_df.csv"
 
@@ -159,6 +159,12 @@ st.markdown("""
     font-size: 0.9rem;
     font-weight: 600;
     text-decoration: none;
+}
+div.stButton > button {
+    font-size: 0.82rem;
+    padding: 0.20rem 0.70rem;
+    min-height: 32px;
+    border-radius: 8px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -445,6 +451,7 @@ def geocode_places(city_df: pd.DataFrame, cache: dict, max_places: int = 150) ->
             lats.append(lat)
             lons.append(lon)
             prog.progress(int(i / total * 100))
+            prog.empty()
 
     target["lat"] = pd.to_numeric(lats, errors="coerce")
     target["lon"] = pd.to_numeric(lons, errors="coerce")
@@ -680,19 +687,22 @@ def render_country_article_panel(df_articles: pd.DataFrame, country_name: str):
 # ----------------------------
 ensure_selection_state()
 
-colA, colB = st.columns([1, 1])
-with colA:
-    st.title("Dashboard")
-with colB:
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("Clear Streamlit cache"):
-            st.cache_data.clear()
-            st.rerun()
-    with c2:
-        if st.button("Clear selected place"):
-            clear_selection()
-            st.rerun()
+title_col, spacer_col, btn1_col, btn2_col = st.columns([7.2, 2.2, 1.2, 1.4])
+
+with title_col:
+    st.title("WorldCup 2026 Observatory")   # or keep your own title text
+
+with btn1_col:
+    st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
+    if st.button("Clear cache"):
+        st.cache_data.clear()
+        st.rerun()
+
+with btn2_col:
+    st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
+    if st.button("Clear selected"):
+        clear_selection()
+        st.rerun()
 
 
 # ----------------------------
@@ -755,8 +765,8 @@ place_stats = build_place_stats(df_f)
 # ----------------------------
 # Map
 # ----------------------------
-st.divider()
-st.subheader("Map")
+#st.divider()
+#st.subheader("Map")
 
 tooltip_html = """
 <div style="
