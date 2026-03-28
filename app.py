@@ -323,7 +323,6 @@ def explode_city_counts(df: pd.DataFrame) -> pd.DataFrame:
 # The JSON file is only written when new cities are added (not on cache hits).
 
 
-@st.cache_data(show_spinner="Geocoding cities…")
 @st.cache_data(show_spinner=False)
 def load_city_coords() -> dict:
     with open("data/city_coords.json", encoding="utf-8") as f:
@@ -860,7 +859,7 @@ with col_pop:
 
 with col_wc:
     st.subheader("WordCloud")
-    wc_df = df_f.head(max_rows_wordcloud)
+    wc_df = df_f.head(min(max_rows_wordcloud, 1500))  # cap it for cloud
     text = " ".join([clean_text_for_wordcloud(x) for x in wc_df["content"].dropna().tolist()])
 
     if len(text.strip()) < 50:
@@ -878,10 +877,15 @@ with col_wc:
         ax.imshow(wc, interpolation="bilinear")
         ax.axis("off")
         st.pyplot(fig2)
+        plt.close(fig2)
+
 
 st.subheader("Popularity over time")
 
-if "ts_counts" not in locals() or ts_counts.empty:
+if "ts_counts" not in locals():
+    ts_counts = pd.DataFrame(columns=["month", "topic", "count"])
+
+if ts_counts.empty:
     st.info("Not enough data to plot popularity over time.")
 else:
     fig_ts = px.line(
@@ -892,7 +896,7 @@ else:
         markers=True,
         labels={"month": "Month", "count": "Articles", "topic": "Topic"},
     )
-    st.plotly_chart(fig_ts, width='stretch')
+    st.plotly_chart(fig_ts, width="stretch")
 
 
 
