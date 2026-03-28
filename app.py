@@ -839,7 +839,8 @@ with col_pop:
             orientation="h",
             labels={"count": "Articles", "topic": "Topic"},
         )
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_ts, width='stretch')
+
 
         df_ts = df_pop[["published_dt", "topic"]].dropna().copy()
         df_ts["month"] = df_ts["published_dt"].dt.to_period("M").dt.to_timestamp()
@@ -873,9 +874,9 @@ with col_wc:
             collocations=False,
         ).generate(text)
 
-        fig2 = plt.figure(figsize=(10, 5))
-        plt.imshow(wc, interpolation="bilinear")
-        plt.axis("off")
+        fig2, ax = plt.subplots(figsize=(10, 5))
+        ax.imshow(wc, interpolation="bilinear")
+        ax.axis("off")
         st.pyplot(fig2)
 
 st.subheader("Popularity over time")
@@ -891,7 +892,8 @@ else:
         markers=True,
         labels={"month": "Month", "count": "Articles", "topic": "Topic"},
     )
-    st.plotly_chart(fig_ts, use_container_width=True)
+    st.plotly_chart(fig_ts, width='stretch')
+
 
 
 # ----------------------------
