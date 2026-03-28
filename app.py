@@ -17,7 +17,7 @@ from wordcloud import WordCloud, STOPWORDS
 # ----------------------------
 # Config
 # ----------------------------
-st.set_page_config(page_title="Dashboard", layout="wide")
+st.set_page_config(page_title="World Cup Observatory", layout="wide")
 
 DATA_PATH = "data/location_all_df.csv"
 
