@@ -839,7 +839,7 @@ with col_pop:
             orientation="h",
             labels={"count": "Articles", "topic": "Topic"},
         )
-        st.plotly_chart(fig_ts, width='stretch')
+        st.plotly_chart(fig_bar, width='stretch')
 
 
         df_ts = df_pop[["published_dt", "topic"]].dropna().copy()
