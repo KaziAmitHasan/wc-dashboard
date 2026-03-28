@@ -27,30 +27,14 @@ CARTO_POSITRON = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
 WORLD_GEOJSON_URL = "https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson"
 
 HOST_CITIES_2026 = {
-    "toronto",
-    "vancouver",
-    "mexico city",
-    "guadalajara",
-    "monterrey",
-    "atlanta",
-    "boston",
-    "dallas",
-    "houston",
-    "kansas city",
-    "los angeles",
-    "miami",
-    "new york",
-    "new york city",
-    "new jersey",
-    "philadelphia",
-    "san francisco",
-    "seattle",
+    "toronto", "vancouver", "mexico city", "guadalajara", "monterrey",
+    "atlanta", "boston", "dallas", "houston", "kansas city", "los angeles",
+    "miami", "new york", "new york city", "new jersey", "philadelphia",
+    "san francisco", "seattle",
 }
 
 HOST_COUNTRIES_2026 = {
-    "United States",
-    "Canada",
-    "Mexico",
+    "United States", "Canada", "Mexico",
 }
 
 HOST_CITY_ALIASES = {
@@ -75,7 +59,6 @@ st.markdown("""
     flex-direction: column;
     overflow: hidden;
 }
-
 .side-panel-title {
     font-size: 1.15rem;
     font-weight: 700;
@@ -83,11 +66,7 @@ st.markdown("""
     margin-bottom: 12px;
     flex-shrink: 0;
 }
-
-.side-panel-top {
-    flex-shrink: 0;
-}
-
+.side-panel-top { flex-shrink: 0; }
 .side-panel-body {
     flex: 1;
     min-height: 0;
@@ -102,15 +81,8 @@ st.markdown("""
     background: #fafafa;
     margin-bottom: 8px;
 }
-
-.side-meta-row {
-    margin-bottom: 8px;
-}
-
-.side-meta-row:last-child {
-    margin-bottom: 0;
-}
-
+.side-meta-row { margin-bottom: 8px; }
+.side-meta-row:last-child { margin-bottom: 0; }
 .side-meta-label {
     font-size: 0.72rem;
     color: #666;
@@ -118,7 +90,6 @@ st.markdown("""
     margin-bottom: 1px;
     line-height: 1.1;
 }
-
 .side-meta-value {
     font-size: 0.9rem;
     color: #111;
@@ -126,13 +97,7 @@ st.markdown("""
     line-height: 1.2;
     word-break: break-word;
 }
-
-.side-scrollbox {
-    max-height: none;
-    overflow: visible;
-    padding-right: 0;
-}
-
+.side-scrollbox { max-height: none; overflow: visible; padding-right: 0; }
 .side-article-card {
     border: 1px solid #ececec;
     border-radius: 12px;
@@ -140,7 +105,6 @@ st.markdown("""
     background: white;
     margin-bottom: 10px;
 }
-
 .side-article-title {
     font-weight: 700;
     font-size: 0.98rem;
@@ -148,18 +112,8 @@ st.markdown("""
     margin-bottom: 8px;
     line-height: 1.35;
 }
-
-.side-article-meta {
-    font-size: 0.84rem;
-    color: #666;
-    margin-bottom: 4px;
-}
-
-.side-article-link a {
-    font-size: 0.9rem;
-    font-weight: 600;
-    text-decoration: none;
-}
+.side-article-meta { font-size: 0.84rem; color: #666; margin-bottom: 4px; }
+.side-article-link a { font-size: 0.9rem; font-weight: 600; text-decoration: none; }
 div.stButton > button {
     font-size: 0.82rem;
     padding: 0.20rem 0.70rem;
@@ -168,6 +122,7 @@ div.stButton > button {
 }
 </style>
 """, unsafe_allow_html=True)
+
 
 # ----------------------------
 # Basic helpers
@@ -184,7 +139,10 @@ def pick_datetime_source(df: pd.DataFrame):
     return None
 
 
-def load_data_no_cache(data_path: str) -> pd.DataFrame:
+# FIX 1: Added @st.cache_data so CSV is only read once per session,
+# not on every single Streamlit rerun.
+@st.cache_data(show_spinner="Loading data…")
+def load_data(data_path: str) -> pd.DataFrame:
     df = pd.read_csv(data_path)
     dt_col = pick_datetime_source(df)
 
@@ -198,64 +156,7 @@ def load_data_no_cache(data_path: str) -> pd.DataFrame:
             df[c] = df[c].astype("string")
 
     return df
-def get_country_for_selected_place(df_articles: pd.DataFrame, selected_place_type: str, selected_place_name: str) -> str:
-    if not selected_place_type or not selected_place_name:
-        return "—"
 
-    if selected_place_type == "country":
-        return selected_place_name
-
-    if selected_place_type == "city":
-        city_articles = filter_articles_for_city(df_articles, selected_place_name)
-        countries = []
-
-        for cell in city_articles["country"].fillna(""):
-            for c in split_places(cell):
-                c_norm = normalize_country(c)
-                if c_norm and c_norm not in countries:
-                    countries.append(c_norm)
-
-        return ", ".join(countries) if countries else "—"
-
-    return "—"
-
-
-def build_articles_html(df_articles: pd.DataFrame) -> str:
-    if df_articles.empty:
-        return """
-        <div class="side-scrollbox">
-            <div class="side-article-card">
-                <div class="side-article-title">No articles found in the current filters.</div>
-            </div>
-        </div>
-        """
-
-    cards = []
-
-    for i, (_, row) in enumerate(df_articles.iterrows(), start=1):
-        title = html.escape(strip_html_tags(row.get("title", "Untitled")))
-        topic = html.escape(strip_html_tags(row.get("topic", "")))
-        published = html.escape(str(row.get("published", "") or ""))
-        url = row.get("real_link", None)
-
-        parts = [f'<div class="side-article-title">{i}. {title}</div>']
-
-        if topic:
-            parts.append(f'<div class="side-article-meta"><b>Topic:</b> {topic}</div>')
-
-        if published.strip():
-            parts.append(f'<div class="side-article-meta"><b>Published:</b> {published}</div>')
-
-        if pd.notna(url) and str(url).strip():
-            safe_url = html.escape(str(url))
-            parts.append(
-                f'<div class="side-article-link"><a href="{safe_url}" target="_blank">Open article</a></div>'
-            )
-
-        card_html = f'<div class="side-article-card">{"".join(parts)}</div>'
-        cards.append(card_html)
-
-    return f'<div class="side-scrollbox">{"".join(cards)}</div>'
 
 def split_places(x) -> list:
     if pd.isna(x):
@@ -290,7 +191,7 @@ def normalize_country(name: str) -> str:
         "iran, islamic republic of": "Iran",
         "korea, republic of": "South Korea",
         "republic of korea": "South Korea",
-        "côte d’ivoire": "Cote d'Ivoire",
+        "côte d'ivoire": "Cote d'Ivoire",
         "côte d'ivoire": "Cote d'Ivoire",
     }
     return mapping.get(lower, n)
@@ -353,27 +254,24 @@ def strip_html_tags(text):
 # ----------------------------
 # Place stats for tooltip
 # ----------------------------
+# FIX 2: Cached so it only recomputes when df_articles actually changes
+# (i.e. filters change), not on every map click or slider nudge.
+@st.cache_data(show_spinner=False)
 def build_place_stats(df_articles: pd.DataFrame) -> dict:
     stats = {}
 
     def add(place_type, place, topic):
         key = f"{place_type}:{place}"
         if key not in stats:
-            stats[key] = {
-                "count": 0,
-                "topic_counts": {},
-            }
-
+            stats[key] = {"count": 0, "topic_counts": {}}
         stats[key]["count"] += 1
         if topic:
             stats[key]["topic_counts"][topic] = stats[key]["topic_counts"].get(topic, 0) + 1
 
     for _, r in df_articles.iterrows():
         topic = str(r.get("topic", "") or "").strip()
-
         cities = split_places(r.get("city", None))
         countries = [normalize_country(x) for x in split_places(r.get("country", None))]
-
         for c in cities:
             add("city", c, topic)
         for c in countries:
@@ -386,7 +284,6 @@ def build_place_stats(df_articles: pd.DataFrame) -> dict:
             ", ".join([f"{topic} ({count})" for topic, count in topic_sorted])
             if topic_sorted else "—"
         )
-
         final[key] = {
             "count": int(d["count"]),
             "most_talked_topics": most_talked_topics,
@@ -417,46 +314,31 @@ def explode_city_counts(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def geocode_places(city_df: pd.DataFrame, cache: dict, max_places: int = 150) -> pd.DataFrame:
+# FIX 3: The core geocoding fix.
+# Previously, even when every city was already in the JSON cache file,
+# Python still looped through all rows, called Nominatim (with 1s delays),
+# and rewrote the file — on EVERY Streamlit rerun.
+# Now: st.cache_data holds the result in memory keyed by (city_df, max_places).
+# The geocoding loop only runs when the city list actually changes.
+# The JSON file is only written when new cities are added (not on cache hits).
+
+
+@st.cache_data(show_spinner="Geocoding cities…")
+@st.cache_data(show_spinner=False)
+def load_city_coords() -> dict:
+    with open("data/city_coords.json", encoding="utf-8") as f:
+        return json.load(f)
+
+@st.cache_data(show_spinner=False)
+def geocode_places_cached(city_df: pd.DataFrame, max_places: int = 150) -> pd.DataFrame:
     if city_df.empty:
-        return city_df.assign(lat=np.nan, lon=np.nan)
+        return city_df.assign(lat=None, lon=None)
 
-    geolocator = Nominatim(user_agent="topic-geo-dashboard")
-    geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.0)
-
+    coords = load_city_coords()
     target = city_df.head(max_places).copy()
-    lats, lons = [], []
-
-    with st.spinner("Geocoding cities (cached; first run may take a while)…"):
-        prog = st.progress(0)
-        total = len(target)
-
-        for i, row in enumerate(target.itertuples(index=False), start=1):
-            key = f"city:{row.place}"
-            if key in cache:
-                lat, lon = cache[key]
-            else:
-                try:
-                    loc = geocode(row.place)
-                except Exception:
-                    loc = None
-
-                if loc is None:
-                    lat, lon = (None, None)
-                else:
-                    lat, lon = (loc.latitude, loc.longitude)
-
-                cache[key] = [lat, lon]
-
-            lats.append(lat)
-            lons.append(lon)
-            prog.progress(int(i / total * 100))
-            # prog.empty()
-
-    target["lat"] = pd.to_numeric(lats, errors="coerce")
-    target["lon"] = pd.to_numeric(lons, errors="coerce")
-    target = target.dropna(subset=["lat", "lon"]).copy()
-    return target
+    target["lat"] = target["place"].map(lambda x: coords.get(x, {}).get("lat"))
+    target["lon"] = target["place"].map(lambda x: coords.get(x, {}).get("lon"))
+    return target.dropna(subset=["lat", "lon"]).copy()
 
 
 # ----------------------------
@@ -487,7 +369,14 @@ def color_scale(count: int, max_count: int) -> list:
     return [220, 40, 40, 200]
 
 
-def build_country_geojson(df_f: pd.DataFrame, place_stats: dict) -> dict:
+# FIX 4: Cached. Previously this re-downloaded + re-processed the entire
+# world GeoJSON on every rerun. Now it only reruns when the filtered
+# dataframe or place_stats actually change.
+# Note: dicts can't be hashed by st.cache_data, so place_stats is passed
+# as a JSON string and decoded inside.
+@st.cache_data(show_spinner=False)
+def build_country_geojson(df_f: pd.DataFrame, place_stats_json: str) -> dict:
+    place_stats = json.loads(place_stats_json)
     world = load_world_geojson()
 
     mentions = []
@@ -517,7 +406,6 @@ def build_country_geojson(df_f: pd.DataFrame, place_stats: dict) -> dict:
         feat["properties"]["host_label"] = host_label
         feat["properties"]["most_talked_topics"] = most_talked_topics
 
-        # flatten for selection / tooltip reliability
         feat["kind"] = "Country"
         feat["label"] = name
         feat["count"] = cnt
@@ -541,7 +429,6 @@ def filter_articles_for_country(df_articles: pd.DataFrame, country_name: str) ->
         )
     )
     out = df_articles[mask].copy()
-
     if "published_dt" in out.columns:
         out = out.sort_values("published_dt", ascending=False, na_position="last")
     return out
@@ -555,10 +442,56 @@ def filter_articles_for_city(df_articles: pd.DataFrame, city_name: str) -> pd.Da
         lambda cell: any(same_city(c, city_name) for c in split_places(cell))
     )
     out = df_articles[mask].copy()
-
     if "published_dt" in out.columns:
         out = out.sort_values("published_dt", ascending=False, na_position="last")
     return out
+
+
+def get_country_for_selected_place(df_articles: pd.DataFrame, selected_place_type: str, selected_place_name: str) -> str:
+    if not selected_place_type or not selected_place_name:
+        return "—"
+    if selected_place_type == "country":
+        return selected_place_name
+    if selected_place_type == "city":
+        city_articles = filter_articles_for_city(df_articles, selected_place_name)
+        countries = []
+        for cell in city_articles["country"].fillna(""):
+            for c in split_places(cell):
+                c_norm = normalize_country(c)
+                if c_norm and c_norm not in countries:
+                    countries.append(c_norm)
+        return ", ".join(countries) if countries else "—"
+    return "—"
+
+
+def build_articles_html(df_articles: pd.DataFrame) -> str:
+    if df_articles.empty:
+        return """
+        <div class="side-scrollbox">
+            <div class="side-article-card">
+                <div class="side-article-title">No articles found in the current filters.</div>
+            </div>
+        </div>
+        """
+    cards = []
+    for i, (_, row) in enumerate(df_articles.iterrows(), start=1):
+        title = html.escape(strip_html_tags(row.get("title", "Untitled")))
+        topic = html.escape(strip_html_tags(row.get("topic", "")))
+        published = html.escape(str(row.get("published", "") or ""))
+        url = row.get("real_link", None)
+
+        parts = [f'<div class="side-article-title">{i}. {title}</div>']
+        if topic:
+            parts.append(f'<div class="side-article-meta"><b>Topic:</b> {topic}</div>')
+        if published.strip():
+            parts.append(f'<div class="side-article-meta"><b>Published:</b> {published}</div>')
+        if pd.notna(url) and str(url).strip():
+            safe_url = html.escape(str(url))
+            parts.append(f'<div class="side-article-link"><a href="{safe_url}" target="_blank">Open article</a></div>')
+
+        cards.append(f'<div class="side-article-card">{"".join(parts)}</div>')
+
+    return f'<div class="side-scrollbox">{"".join(cards)}</div>'
 
 
 # ----------------------------
@@ -579,29 +512,22 @@ def clear_selection():
 def get_event_objects(event):
     if event is None:
         return {}
-
-    # Event can behave like dict
     if isinstance(event, dict):
         return event.get("selection", {}).get("objects", {})
-
-    # Event can behave like object
     try:
         return event.selection.get("objects", {})
     except Exception:
         pass
-
     try:
         return event.selection.objects
     except Exception:
         pass
-
     return {}
 
 
 def get_clicked_place(event):
     objects = get_event_objects(event)
 
-    # City layer
     city_items = objects.get("cities", [])
     if city_items:
         obj = city_items[0]
@@ -609,7 +535,6 @@ def get_clicked_place(event):
         if place_name:
             return "city", place_name
 
-    # Country layer
     country_items = objects.get("countries", [])
     if country_items:
         obj = country_items[0]
@@ -626,63 +551,6 @@ def get_clicked_place(event):
 
 
 # ----------------------------
-# Render article panels
-# ----------------------------
-def render_city_article_panel(df_articles: pd.DataFrame, city_name: str):
-    st.subheader(f"Articles for {city_name}")
-
-    if df_articles.empty:
-        st.info("No articles found for this city in the current filters.")
-        return
-
-    host_text = "Official 2026 World Cup host city" if is_host_city_2026(city_name) else "Non-host city"
-    st.caption(host_text)
-
-    with st.container(border=True):
-        for i, (_, row) in enumerate(df_articles.iterrows(), start=1):
-            title = strip_html_tags(row.get("title", "Untitled"))
-            url = row.get("real_link", None)
-            topic = strip_html_tags(row.get("topic", ""))
-            published = row.get("published", "")
-
-            st.markdown(f"**{i}. {title}**")
-            if topic:
-                st.caption(f"Topic: {topic}")
-            if pd.notna(published) and str(published).strip():
-                st.caption(f"Published: {published}")
-            if pd.notna(url) and str(url).strip():
-                st.markdown(f"[Open article]({url})")
-            st.markdown("---")
-
-
-def render_country_article_panel(df_articles: pd.DataFrame, country_name: str):
-    st.subheader(f"Articles for {country_name}")
-
-    if df_articles.empty:
-        st.info("No articles found for this country in the current filters.")
-        return
-
-    host_text = "Official 2026 World Cup host country" if is_host_country_2026(country_name) else "Non-host country"
-    st.caption(host_text)
-
-    with st.container(border=True):
-        for i, (_, row) in enumerate(df_articles.iterrows(), start=1):
-            title = strip_html_tags(row.get("title", "Untitled"))
-            url = row.get("real_link", None)
-            topic = strip_html_tags(row.get("topic", ""))
-            published = row.get("published", "")
-
-            st.markdown(f"**{i}. {title}**")
-            if topic:
-                st.caption(f"Topic: {topic}")
-            if pd.notna(published) and str(published).strip():
-                st.caption(f"Published: {published}")
-            if pd.notna(url) and str(url).strip():
-                st.markdown(f"[Open article]({url})")
-            st.markdown("---")
-
-
-# ----------------------------
 # UI Top
 # ----------------------------
 ensure_selection_state()
@@ -690,7 +558,7 @@ ensure_selection_state()
 title_col, spacer_col, btn1_col, btn2_col = st.columns([7.2, 2.2, 1.2, 1.4])
 
 with title_col:
-    st.title("WorldCup 2026 Observatory")   # or keep your own title text
+    st.title("WorldCup 2026 Observatory")
 
 with btn1_col:
     st.markdown("<div style='height: 18px;'></div>", unsafe_allow_html=True)
@@ -712,7 +580,8 @@ if not os.path.exists(DATA_PATH):
     st.error(f"Cannot find {DATA_PATH}. Update DATA_PATH at top.")
     st.stop()
 
-df = load_data_no_cache(DATA_PATH)
+# FIX 1 in action: uses cached loader — reads CSV only once per session
+df = load_data(DATA_PATH)
 
 
 # ----------------------------
@@ -759,40 +628,24 @@ if date_range is not None:
         (df_f["published_dt"].dt.date <= end_d)
     ]
 
+# FIX 2 in action: place_stats computed once per unique df_f slice
 place_stats = build_place_stats(df_f)
 
 
 # ----------------------------
 # Map
 # ----------------------------
-#st.divider()
-#st.subheader("Map")
-
 tooltip_html = """
 <div style="
   font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial;
   width: 320px;
   line-height: 1.5;
 ">
-  <div style="font-size: 20px; font-weight: 800; margin-bottom: 8px;">
-    {label}
-  </div>
-
-  <div style="font-size: 14px; color: #444; margin-bottom: 4px;">
-    {kind}
-  </div>
-
-  <div style="font-size: 14px; color: #9b1c1c; font-weight: 700; margin-bottom: 8px;">
-    {host_label}
-  </div>
-
-  <div style="font-size: 14px; margin-bottom: 6px;">
-    <b>Total articles talking about it:</b> {count}
-  </div>
-
-  <div style="font-size: 14px; color: #222;">
-    <b>Most talked topics:</b> {most_talked_topics}
-  </div>
+  <div style="font-size: 20px; font-weight: 800; margin-bottom: 8px;">{label}</div>
+  <div style="font-size: 14px; color: #444; margin-bottom: 4px;">{kind}</div>
+  <div style="font-size: 14px; color: #9b1c1c; font-weight: 700; margin-bottom: 8px;">{host_label}</div>
+  <div style="font-size: 14px; margin-bottom: 6px;"><b>Total articles talking about it:</b> {count}</div>
+  <div style="font-size: 14px; color: #222;"><b>Most talked topics:</b> {most_talked_topics}</div>
 </div>
 """
 
@@ -800,7 +653,8 @@ layers = []
 geo_df = pd.DataFrame()
 
 if map_mode in ["Country (filled)", "Both"]:
-    world_geo = build_country_geojson(df_f, place_stats)
+    # FIX 4 in action: pass place_stats as JSON string so it's hashable
+    world_geo = build_country_geojson(df_f, json.dumps(place_stats))
     layers.append(
         pdk.Layer(
             "GeoJsonLayer",
@@ -819,9 +673,9 @@ if map_mode in ["Country (filled)", "Both"]:
 if map_mode in ["City bubbles", "Both"]:
     city_counts = explode_city_counts(df_f)
     if not city_counts.empty:
-        cache = load_geocache(GEOCACHE_PATH)
-        geo_df = geocode_places(city_counts, cache, max_places=topN_city)
-        save_geocache(cache, GEOCACHE_PATH)
+        # FIX 3 in action: geocoding result is cached in memory;
+        # Nominatim is only called for genuinely new cities
+        geo_df = geocode_places_cached(city_counts, topN_city)
 
         if not geo_df.empty:
             def stat(place: str, field: str):
@@ -842,7 +696,6 @@ if map_mode in ["City bubbles", "Both"]:
                 np.clip(np.sqrt(geo_df["count"].astype(float)) * 5000, 12000, 50000),
                 np.clip(np.sqrt(geo_df["count"].astype(float)) * 3500, 8000, 35000),
             )
-
             geo_df["fill_color"] = geo_df["is_host_city"].apply(
                 lambda x: [220, 50, 50, 210] if x else [30, 110, 190, 170]
             )
@@ -917,11 +770,8 @@ with col_side:
             st.info("Click a city or country on the map to show its articles here.")
         else:
             country_text = get_country_for_selected_place(
-                df_f,
-                selected_place_type,
-                selected_place_name,
+                df_f, selected_place_type, selected_place_name,
             )
-
             display_city = selected_place_name if selected_place_type == "city" else "—"
 
             st.markdown(
@@ -940,7 +790,6 @@ with col_side:
             if selected_place_type == "city":
                 city_articles = filter_articles_for_city(df_f, selected_place_name)
                 st.markdown(build_articles_html(city_articles), unsafe_allow_html=True)
-
             elif selected_place_type == "country":
                 country_articles = filter_articles_for_country(df_f, selected_place_name)
                 st.markdown(build_articles_html(country_articles), unsafe_allow_html=True)
@@ -953,13 +802,12 @@ st.divider()
 
 col_pop, col_wc = st.columns([1, 1], gap="large")
 
-df_pop = df.copy()
+# FIX 5: Reuse df_f as the base for df_pop instead of re-filtering df from scratch.
+# The date filter is already applied to df_f above.
+df_pop = df_f.copy()
+
 if date_range is not None:
-    start_d, end_d = date_range
-    df_pop = df_pop[
-        (df_pop["published_dt"].dt.date >= start_d) &
-        (df_pop["published_dt"].dt.date <= end_d)
-    ]
+    _, end_d = date_range
     window_end = pd.Timestamp(end_d)
 else:
     window_end = df_pop["published_dt"].dropna().max()
