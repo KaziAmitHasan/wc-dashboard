@@ -19,7 +19,7 @@ from wordcloud import WordCloud, STOPWORDS
 # ----------------------------
 st.set_page_config(page_title="WorldCup 2026 Observatory", layout="wide")
 
-DATA_PATH = "/data/location_all_df.csv"
+DATA_PATH = "data/location_all_df.csv"
 
 GEOCACHE_PATH = "geocode_cache.json"
 MAP_PANEL_HEIGHT = 650
