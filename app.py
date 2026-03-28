@@ -451,7 +451,7 @@ def geocode_places(city_df: pd.DataFrame, cache: dict, max_places: int = 150) ->
             lats.append(lat)
             lons.append(lon)
             prog.progress(int(i / total * 100))
-            prog.empty()
+            #prog.empty()
 
     target["lat"] = pd.to_numeric(lats, errors="coerce")
     target["lon"] = pd.to_numeric(lons, errors="coerce")
