@@ -687,7 +687,7 @@ with col_map:
     event = st.pydeck_chart(
         deck,
         height=MAP_PANEL_HEIGHT,
-        on_select="ignore",
+        on_select="rerun",
         selection_mode="single-object",
         key="main_map",
     )
