@@ -9,6 +9,7 @@ import streamlit as st
 import pydeck as pdk
 import plotly.express as px
 import matplotlib.pyplot as plt
+import streamlit.components.v1 as components
 
 from wordcloud import WordCloud, STOPWORDS
 
