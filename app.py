@@ -171,6 +171,257 @@ def split_places(x) -> list:
             out.append(p)
     return out
 
+def build_top_news_carousel_html(df_articles: pd.DataFrame, max_items: int = 30) -> str:
+    """Latest-date articles, randomised, in a self-contained HTML/JS auto-sliding carousel."""
+    import json as _json
+    import random
+
+    cols_needed = [c for c in ["title", "topic", "published", "real_link", "link"] if c in df_articles.columns]
+
+    # ── 1. Pull published_dt in for filtering, then drop it from the output cols
+    working = df_articles[cols_needed].copy()
+    if "published_dt" in df_articles.columns:
+        working["published_dt"] = df_articles["published_dt"]
+
+    # ── 2. Keep only the LATEST date bucket (same calendar day as the newest article)
+    if "published_dt" in working.columns:
+        working = working.dropna(subset=["published_dt"])
+        if not working.empty:
+            latest_day = working["published_dt"].max().normalize()          # midnight of latest date
+            working = working[working["published_dt"].dt.normalize() == latest_day]
+        working = working.drop(columns=["published_dt"])
+
+    if working.empty:
+        working = df_articles[cols_needed].copy()                           # fallback: all articles
+
+    # ── 3. Randomise
+    working = working.sample(frac=1, random_state=None).reset_index(drop=True)
+    working = working.head(max_items)
+
+    # ── 4. Build card data
+    cards_json = []
+    for _, row in working.iterrows():
+        title     = strip_html_tags(str(row.get("title",   "Untitled") or "Untitled"))
+        topic     = strip_html_tags(str(row.get("topic",   "")         or ""))
+        published = str(row.get("published", "") or "")[:16]
+        url       = str(row.get("real_link") or row.get("link", "") or "")
+        cards_json.append({"title": title, "topic": topic, "published": published, "url": url})
+
+    cards_str = _json.dumps(cards_json)
+
+    return f"""
+<style>
+  #tnc-wrap {{
+    font-family: Inter, system-ui, Arial, sans-serif;
+    background: #fff;
+    border: 1px solid #e2e2e2;
+    border-radius: 14px;
+    padding: 0;
+    overflow: hidden;
+    box-shadow: 0 2px 12px rgba(0,0,0,.06);
+    max-width: 100%;
+  }}
+  #tnc-header {{
+    background: linear-gradient(90deg, #c0392b 0%, #e74c3c 100%);
+    color: #fff;
+    font-weight: 800;
+    font-size: 1rem;
+    letter-spacing: .04em;
+    padding: 9px 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }}
+  #tnc-header .dot {{
+    width: 9px; height: 9px;
+    background: #fff;
+    border-radius: 50%;
+    animation: blink 1.1s infinite;
+  }}
+  @keyframes blink {{
+    0%,100% {{ opacity:1 }} 50% {{ opacity:.25 }}
+  }}
+  #tnc-stage {{
+    position: relative;
+    height: 110px;
+    overflow: hidden;
+  }}
+  .tnc-card {{
+    position: absolute;
+    inset: 0;
+    padding: 14px 18px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity .45s ease, transform .45s ease;
+    pointer-events: none;
+  }}
+  .tnc-card.active {{
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }}
+  .tnc-card.leaving {{
+    opacity: 0;
+    transform: translateY(-18px);
+    transition: opacity .35s ease, transform .35s ease;
+  }}
+  .tnc-title {{
+    font-size: .97rem;
+    font-weight: 700;
+    color: #111;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }}
+  .tnc-title a {{
+    color: inherit;
+    text-decoration: none;
+  }}
+  .tnc-title a:hover {{ text-decoration: underline; color: #c0392b; }}
+  .tnc-meta {{
+    font-size: .78rem;
+    color: #888;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }}
+  .tnc-topic {{
+    background: #fef3f2;
+    color: #c0392b;
+    padding: 1px 7px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: .74rem;
+  }}
+  #tnc-counter {{
+    font-size: .75rem;
+    color: #bbb;
+    text-align: right;
+    padding: 0 14px;
+    line-height: 1;
+  }}
+  #tnc-dots {{
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 0 9px;
+    background: #fafafa;
+    border-top: 1px solid #f0f0f0;
+  }}
+  .tnc-dot {{
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #ddd;
+    cursor: pointer;
+    transition: background .3s;
+    border: none;
+    padding: 0;
+  }}
+  .tnc-dot.on {{ background: #c0392b; transform: scale(1.3); }}
+</style>
+
+<div id="tnc-wrap">
+  <div id="tnc-header">
+    <span class="dot"></span>
+    TOP NEWS &nbsp;<span style="font-weight:400;font-size:.82rem;opacity:.85;"></span>
+  </div>
+  <div id="tnc-stage"></div>
+  <div id="tnc-dots"></div>
+</div>
+
+<script>
+(function() {{
+  const cards = {cards_str};
+  if (!cards.length) return;
+
+  const stage  = document.getElementById('tnc-stage');
+  const dotsEl = document.getElementById('tnc-dots');
+  let current = 0;
+  let timer   = null;
+
+  function escHtml(s) {{
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }}
+
+  // ── Build cards & dots
+  cards.forEach((c, i) => {{
+    const div = document.createElement('div');
+    div.className = 'tnc-card' + (i === 0 ? ' active' : '');
+    div.id = 'tnc-card-' + i;
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'tnc-title';
+    titleEl.innerHTML = c.url
+      ? escHtml(c.title) + ' <a href="' + escHtml(c.url) + '" target="_blank" style="color:#c0393b;font-weight:700;text-decoration:none;white-space:nowrap;">(Link)</a>'
+      : escHtml(c.title);
+
+    const metaEl = document.createElement('div');
+    metaEl.className = 'tnc-meta';
+    if (c.topic) {{
+      const pill = document.createElement('span');
+      pill.className = 'tnc-topic';
+      pill.textContent = c.topic;
+      metaEl.appendChild(pill);
+    }}
+    if (c.published) {{
+      const ts = document.createElement('span');
+      ts.textContent = c.published;
+      metaEl.appendChild(ts);
+    }}
+
+    div.appendChild(titleEl);
+    div.appendChild(metaEl);
+    stage.appendChild(div);
+
+    const dot = document.createElement('button');
+    dot.className = 'tnc-dot' + (i === 0 ? ' on' : '');
+    dot.setAttribute('aria-label', 'Slide ' + (i + 1));
+    dot.addEventListener('click', () => {{ goTo(i); resetTimer(); }});
+    dotsEl.appendChild(dot);
+  }});
+
+  function allCards() {{ return Array.from(stage.querySelectorAll('.tnc-card')); }}
+  function allDots()  {{ return Array.from(dotsEl.querySelectorAll('.tnc-dot')); }}
+
+  function goTo(next) {{
+    const cardEls = allCards();
+    const dotEls  = allDots();
+    next = ((next % cardEls.length) + cardEls.length) % cardEls.length;
+    if (next === current) return;
+
+    // outgoing
+    cardEls[current].classList.add('leaving');
+    cardEls[current].classList.remove('active');
+    dotEls[current].classList.remove('on');
+
+    // incoming
+    current = next;
+    cardEls[current].classList.remove('leaving');
+    cardEls[current].classList.add('active');
+    dotEls[current].classList.add('on');
+
+    // clean stale "leaving" after transition
+    setTimeout(() => cardEls.forEach(c => {{
+      if (!c.classList.contains('active')) c.classList.remove('leaving');
+    }}), 500);
+  }}
+
+  function resetTimer() {{
+    clearInterval(timer);
+    timer = setInterval(() => goTo(current + 1), 3000);
+  }}
+
+  resetTimer();
+}})();
+</script>
+"""
 
 def normalize_country(name: str) -> str:
     n = (name or "").strip()
@@ -574,6 +825,8 @@ if date_range is not None:
 
 place_stats = build_place_stats(df_f)
 
+# --- Top News carousel ---
+components.html(build_top_news_carousel_html(df_f), height=175, scrolling=False)
 # ----------------------------
 # Map
 # ----------------------------
